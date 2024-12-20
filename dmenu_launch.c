@@ -11,12 +11,13 @@ typedef struct {
 } Dmenu;
 
 typedef struct {
-	char *strtok_save;
-	char *dirs;
-	char *dirname;
-	DIR *curdir;
-	struct dirent *curent;
-} DeskEnt;
+	char *dir_names;
+	char *current_dir_name;
+	char *_saveptr;
+	DIR *current_dir;
+	struct dirent *current_dirent;
+	int is_end;
+} Dirs;
 
 int dmenu_init(Dmenu *dmenu, char *argv[])
 {
@@ -49,53 +50,77 @@ int dmenu_init(Dmenu *dmenu, char *argv[])
 	}
 }
 
-int deskent_init(DeskEnt *de) 
+int dirs_init(Dirs *dirs)
 {
-	de->dirs = getenv("XDG_DATA_DIRS");
-	de->strtok_save = NULL;
-	de->curdir = NULL;
-	de->curent = NULL;
-	if (de->dirs == NULL) return -1;
-	return 0;
+	dirs->dir_names = getenv("XDG_DATA_DIRS");
+	dirs->current_dir_name = NULL;
+	dirs->_saveptr = NULL;
+	dirs->current_dir = NULL;
+	dirs->is_end = 0;
+	if (!dirs->dir_names) return -1;
 }
 
-char *deskent_next(DeskEnt *de)
+DIR *_dirs_next_dir(Dirs *dirs) 
 {
-	while (!(de->curdir && de->curent)) {
-		char *dname;
-		if (de->strtok_save) 
-			dname = strtok_r(NULL, ":", &de->strtok_save);
-		else
-			dname = strtok_r(de->dirs, ":", &de->strtok_save);
-		if (!dname) {
-			closedir(de->curdir);
-			return NULL; //return NULL on end
-		}
-		
-		if (de->dirname)
-			free(de->dirname);
-		de->dirname = (char *) malloc(
-			strlen(dname) + strlen("/applications/") + 1
-			);
-		strcpy(de->dirname, dname);
-		strcat(de->dirname, "/applications/");
-		
-		if (de->curdir) 
-			closedir(de->curdir);
-		de->curdir = opendir(de->dirname);
-		if (!de->curdir) 
-			continue;
-		
-		de->curent = readdir(de->curdir);
+	if (dirs->current_dir) 
+		closedir(dirs->current_dir);
+	if (dirs->current_dir_name)
+		free(dirs->current_dir_name);
+
+	char *dir_name;
+	if (dirs->_saveptr)
+		dir_name = strtok_r(NULL, ":", &dirs->_saveptr);
+	else
+		dir_name = strtok_r(dirs->dir_names, ":", &dirs->_saveptr);
+
+	if (!dir_name) {
+		dirs->is_end = -1;
+		return NULL;
 	}
-	struct dirent *curent = de->curent;
-	de->curent = readdir(de->curdir);
-	char *name = malloc(
-		strlen(de->dirname) + strlen(curent->d_name) + 1
+
+	dirs->current_dir_name = (char *)malloc(
+		strlen(dir_name) + strlen("/applications/") + 1
 		);
-	strcpy(name, de->dirname);
-	strcat(name, curent->d_name);
-	return name;
-	//TODO:Make code clean
-	//TODO:Filter directories and cache files
+	strcpy(dirs->current_dir_name, dir_name);
+	strcat(dirs->current_dir_name, "/applications/");
+	return opendir(dirs->current_dir_name);
+}
+
+struct dirent *_dirs_next_dirent(Dirs *dirs)
+{
+	if (!dirs->current_dirent) {
+		dirs->current_dir = _dirs_next_dir(dirs);
+		if (!dirs->current_dir) 
+			return NULL;
+	}
+	dirs->current_dirent = readdir(dirs->current_dir);
+	return dirs->current_dirent;
+}
+
+char *_dirs_next_filename(Dirs *dirs)
+{
+	struct dirent *dirent;
+	char *fullname;
+	while (!(dirent = _dirs_next_dirent(dirs))) {
+		return NULL;
+	}
+	fullname = (char *)malloc(
+		strlen(dirs->current_dir_name) + strlen(dirent->d_name) + 1
+		);
+	strcpy(fullname, dirs->current_dir_name);
+	strcat(fullname, dirent->d_name);
+	return fullname;
+}
+
+char *dirs_next_file(Dirs *dirs)
+{
+	char filename = NULL;
+	FILE *file = NULL;
+	while (!file) {
+		filename = _dirs_next_filename(dirs);
+		if (!filename && dirs->is_end)
+			return NULL;
+		file = fopen(filename);
+	}
+	return file;
 }
