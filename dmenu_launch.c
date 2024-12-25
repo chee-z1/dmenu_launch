@@ -5,6 +5,9 @@
 #include <string.h>
 #include <stdlib.h>
 
+#include <iniparser/iniparser.h>
+#include <iniparser/dictionary.h>
+
 typedef struct {
 	FILE *in; //Dmenu's stdin
 	FILE *out; //Dmenu's stdout
@@ -97,7 +100,7 @@ struct dirent *_dirs_next_dirent(Dirs *dirs)
 	return dirs->current_dirent;
 }
 
-char *_dirs_next_filename(Dirs *dirs)
+char *dirs_next_filename(Dirs *dirs)
 {
 	struct dirent *dirent;
 	char *fullname;
@@ -112,15 +115,50 @@ char *_dirs_next_filename(Dirs *dirs)
 	return fullname;
 }
 
-char *dirs_next_file(Dirs *dirs)
+FILE *dirs_next_file(Dirs *dirs, char **name_store)
 {
-	char filename = NULL;
+	char *filename = NULL;
 	FILE *file = NULL;
 	while (!file) {
-		filename = _dirs_next_filename(dirs);
+		filename = dirs_next_filename(dirs);
 		if (!filename && dirs->is_end)
 			return NULL;
-		file = fopen(filename);
+		file = fopen(filename, "r");
+		if (name_store)
+			*name_store = filename;
+		else
+			free(filename);
 	}
 	return file;
 }
+
+
+dictionary *add_desktop_entries_from(dictionary *dic, FILE *file, char *name)
+{
+	const dictionary *appfile = iniparser_load_file(file, name);
+	int nsec = iniparser_getnsec(appfile);
+	for (int n=0;n<nsec;++n) {
+		const char *secname = iniparser_getsecname(appfile, n);
+		if (strncmp(secname, "desktop action", sizeof("desktop action") - 1)
+			&& strcmp(secname, "desktop entry")) {
+			continue;
+		}
+		char *full_name_key = malloc(strlen(secname) + strlen("name") + 2);
+		char *full_exec_key = malloc(strlen(secname) + strlen("exec") + 2);
+		strcpy(full_name_key, secname);
+		strcat(full_name_key, ":");
+		strcat(full_name_key, "name");
+		strcpy(full_exec_key, secname);
+		strcat(full_exec_key, ":");
+		strcat(full_exec_key, "exec");
+		const char *name = iniparser_getstring(appfile, full_name_key, NULL);
+		const char *exec = iniparser_getstring(appfile, full_exec_key, NULL);
+		if (!name) continue;
+		if (!exec) continue;
+		dictionary_set(dic, name, exec);
+		free(full_name_key);
+		return dic;
+	}
+}
+
+

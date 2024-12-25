@@ -1,5 +1,5 @@
 all:clean
-	$(CC) dmenu_launch.c -o dmenu_launch
+	$(CC) dmenu_launch.c -liniparser -o dmenu_launch
 
 clean:
 	rm -rf dmenu_launch
